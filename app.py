@@ -10,7 +10,7 @@ import time
 st.set_page_config(page_title="ズメーン自動操作", layout="wide")
 
 st.title("🤖 ズメーン CSVゲッター")
-st.caption("ログイン → 「新規案件」の右隣のボタン(...) → CSVダウンロード")
+st.caption("ログイン → 「新規案件」右のメニュー → 「CSVダウンロード」の文字をクリック")
 
 # --- ログイン情報 ---
 LOGIN_URL = "https://zume-n.com/login"
@@ -76,44 +76,40 @@ if st.button("🚀 CSVを取得する"):
         # ==========================================
         # 3. 「新規案件」の右隣のボタン(...)をクリック
         # ==========================================
-        status.info("🔄 「新規案件」の右隣にあるボタン(...)を探しています...")
+        status.info("🔄 「新規案件」の右隣にあるメニュー(...)を開きます...")
 
         try:
-            # ★変更点: 「新規案件」という文字を含む要素の、親(ボタン自体)の、すぐ次の兄弟要素(Sibling)を探す
-            # 構造: [新規案件ボタン] [・・・ボタン] と並んでいると想定
-            
+            # 「新規案件」文字の入ったボタンの、すぐ後ろにあるボタンをクリック
             menu_btn = wait.until(EC.element_to_be_clickable(
                 (By.XPATH, "//*[contains(text(), '新規案件')]/ancestor-or-self::button/following-sibling::button[1] | //*[contains(text(), '新規案件')]/../following-sibling::button[1]")
             ))
-            
-            # 見つかったボタンをクリック
             menu_btn.click()
             
-            status.info("👉 メニューボタン(...)をクリックしました！")
+            status.info("👉 メニュー(...)をクリックしました！")
             time.sleep(2) 
 
             # ==========================================
-            # 4. 「CSV」を含む文字をクリック
+            # 4. 「CSVダウンロード」の文字をクリック
             # ==========================================
-            status.info("🔄 「CSV」ボタンを探して押します...")
+            status.info("🔄 「CSVダウンロード」という文字を探して押します...")
             
-            # ドロップダウンメニューの中からCSVを探す
-            csv_btn = wait.until(EC.element_to_be_clickable(
-                (By.XPATH, "//*[contains(text(), 'CSV') or contains(text(), 'csv')]")
+            # ★変更点: 「CSVダウンロード」という文字をピンポイントで探す
+            csv_text_element = wait.until(EC.element_to_be_clickable(
+                (By.XPATH, "//*[contains(text(), 'CSVダウンロード')]")
             ))
-            csv_btn.click()
+            csv_text_element.click()
             
             time.sleep(5)
 
             # ==========================================
             # 5. 結果確認
             # ==========================================
-            status.success("✅ CSVボタンを押しました！")
+            status.success("✅ 「CSVダウンロード」をクリックしました！")
             st.image(driver.get_screenshot_as_png(), caption="操作後の画面")
-            st.info("※クラウド環境のため、ファイルはサーバーに保存されました。")
+            st.info("※サーバー側でダウンロード処理が実行されました。")
 
         except Exception as e:
-            st.error("❌ ボタンが見つからないか、押せませんでした。")
+            st.error("❌ ボタンまたは文字が見つかりませんでした。")
             st.write("▼ 現在の画面")
             st.image(driver.get_screenshot_as_png())
             st.error(f"詳細エラー: {e}")
