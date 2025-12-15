@@ -10,7 +10,7 @@ import time
 st.set_page_config(page_title="ズメーン自動操作", layout="wide")
 
 st.title("🤖 ズメーン自動操作ロボット")
-st.caption("ログイン → 案件一覧ページへの移動を行います。")
+st.caption("ログイン → 「案件一覧」の文字をクリックします。")
 
 # --- ログイン情報 ---
 LOGIN_URL = "https://zume-n.com/login"
@@ -40,66 +40,54 @@ if st.button("🚀 実行する"):
         status.info(f"🔄 {LOGIN_URL} にアクセス中...")
         driver.get(LOGIN_URL)
         
-        # 読み込み待ち
         wait.until(EC.presence_of_element_located((By.TAG_NAME, "body")))
         time.sleep(2)
 
         status.info("🔄 ログイン情報を入力中...")
         
-        # メールアドレス
         email_input = wait.until(EC.presence_of_element_located(
             (By.CSS_SELECTOR, "input[type='email'], input[name='email'], input[type='text']")
         ))
         email_input.clear()
         email_input.send_keys(USER_EMAIL)
 
-        # パスワード
         pass_input = driver.find_element(By.CSS_SELECTOR, "input[type='password']")
         pass_input.clear()
         pass_input.send_keys(USER_PASS)
 
-        # ログインボタン
         submit_btn = driver.find_element(By.CSS_SELECTOR, "button[type='submit']")
         submit_btn.click()
 
         status.info("⏳ ログイン処理中...")
-        time.sleep(5) # 画面遷移をしっかり待つ
+        time.sleep(5) 
 
         # ==========================================
-        # 2. 「案件一覧」をクリック
+        # 2. 「案件一覧」の文字をクリック
         # ==========================================
-        status.info("🔄 「案件一覧」を探してクリックします...")
+        status.info("🔄 「案件一覧」という文字を探しています...")
 
         try:
-            # 複数のパターンで「案件一覧」を探す戦略
-            # 戦略A: リンク（aタグ）の中に「案件一覧」があるか
-            # 戦略B: どこでもいいから「案件一覧」という文字をクリック
-            
-            # XPathを使って「案件一覧」という文字を含む要素を探す
-            # wait.until で、クリックできる状態になるまで探します
-            anken_btn = wait.until(EC.element_to_be_clickable(
-                (By.XPATH, "//a[contains(text(), '案件一覧')] | //button[contains(text(), '案件一覧')] | //span[contains(text(), '案件一覧')]")
+            # ★変更点: タグを限定せず(*)、テキストに「案件一覧」を含むあらゆる要素を探す
+            anken_element = wait.until(EC.element_to_be_clickable(
+                (By.XPATH, "//*[contains(text(), '案件一覧')]")
             ))
             
-            # 発見したらクリック
-            anken_btn.click()
+            # 見つけた要素をクリック
+            anken_element.click()
             
             status.info("👉 「案件一覧」をクリックしました！画面遷移を待っています...")
-            time.sleep(5) # 一覧の読み込み待ち
+            time.sleep(5)
 
             # ==========================================
             # 3. 結果確認
             # ==========================================
             status.success("✅ 完了しました！現在の画面を確認してください。")
-            
             st.write(f"**現在のURL:** {driver.current_url}")
-            
-            # スクリーンショットを表示
-            st.image(driver.get_screenshot_as_png(), caption="案件一覧ページ（のはず）")
+            st.image(driver.get_screenshot_as_png(), caption="クリック後の画面")
 
         except Exception as e:
-            st.error("❌ 「案件一覧」ボタンが見つかりませんでした。")
-            st.write("▼ 現在の画面（ボタンが見当たらない画面）")
+            st.error("❌ 「案件一覧」の文字が見つからないか、クリックできませんでした。")
+            st.write("▼ 現在の画面")
             st.image(driver.get_screenshot_as_png())
             st.error(f"詳細エラー: {e}")
 
