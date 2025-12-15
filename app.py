@@ -1,11 +1,19 @@
 import streamlit as st
 import pandas as pd
-from selenium import webdriver
-from selenium.webdriver.chrome.options import Options
-from selenium.webdriver.common.by import By
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
 import time
+import os
+import shutil
+
+# Selenium関連のインポート（エラー時はスキップ）
+try:
+    from selenium import webdriver
+    from selenium.webdriver.chrome.options import Options
+    from selenium.webdriver.common.by import By
+    from selenium.webdriver.support.ui import WebDriverWait
+    from selenium.webdriver.support import expected_conditions as EC
+    SELENIUM_AVAILABLE = True
+except ImportError:
+    SELENIUM_AVAILABLE = False
 
 # ページ設定
 st.set_page_config(page_title="工場稼働モニタリング", layout="wide")
@@ -33,178 +41,201 @@ def check_password():
 check_password()
 
 # ==========================================
-# ⚙️ データ取得ロジック (エラーに強くする)
+# ⚙️ データ取得ロジック (CSVダウンロード方式)
 # ==========================================
 LOGIN_URL = "https://zume-n.com/login"
 USER_EMAIL = "r.mori@mbs-m.co.jp"
 USER_PASS = "Riki(1127)"
+DOWNLOAD_DIR = "/tmp/zumen_downloads" # クラウド上の一時保存場所
 
-@st.cache_data(ttl=300, show_spinner=False)
-def fetch_product_data():
-    options = Options()
-    options.add_argument("--headless")
-    options.add_argument("--no-sandbox")
-    options.add_argument("--disable-dev-shm-usage")
-    options.add_argument("--disable-gpu")
-    options.add_argument("--window-size=1920,1080")
+def fetch_data_via_csv():
+    """CSVダウンロードボタンを押してデータを取得する"""
+    if not SELENIUM_AVAILABLE:
+        return pd.DataFrame(), "Seleniumライブラリがありません"
 
-    driver = webdriver.Chrome(options=options)
-    wait = WebDriverWait(driver, 15)
-
-    data_list = []
+    status_log = []
+    
+    # ダウンロードフォルダの初期化
+    if os.path.exists(DOWNLOAD_DIR):
+        shutil.rmtree(DOWNLOAD_DIR)
+    os.makedirs(DOWNLOAD_DIR)
 
     try:
+        # ブラウザ設定（ダウンロード先を指定）
+        options = Options()
+        options.add_argument("--headless")
+        options.add_argument("--no-sandbox")
+        options.add_argument("--disable-dev-shm-usage")
+        options.add_argument("--disable-gpu")
+        options.add_argument("--window-size=1920,1080")
+        
+        # ダウンロード設定
+        prefs = {"download.default_directory": DOWNLOAD_DIR}
+        options.add_experimental_option("prefs", prefs)
+        
+        status_log.append("ブラウザ起動...")
+        driver = webdriver.Chrome(options=options)
+        wait = WebDriverWait(driver, 15)
+
         # 1. ログイン
+        status_log.append("ログイン中...")
         driver.get(LOGIN_URL)
         wait.until(EC.presence_of_element_located((By.TAG_NAME, "body")))
         
-        # 入力欄を探す（複数のパターンでトライ）
-        try:
-            email = driver.find_element(By.CSS_SELECTOR, "input[type='email']")
-        except:
-            email = driver.find_element(By.CSS_SELECTOR, "input[name='email']")
-            
-        try:
-            pwd = driver.find_element(By.CSS_SELECTOR, "input[type='password']")
-        except:
-            pwd = driver.find_element(By.CSS_SELECTOR, "input[name='password']")
-
+        # 入力欄特定
+        try: email = driver.find_element(By.CSS_SELECTOR, "input[type='email']")
+        except: email = driver.find_element(By.CSS_SELECTOR, "input[name='email']")
+        
+        try: pwd = driver.find_element(By.CSS_SELECTOR, "input[type='password']")
+        except: pwd = driver.find_element(By.CSS_SELECTOR, "input[name='password']")
+        
         email.clear(); email.send_keys(USER_EMAIL)
         pwd.clear(); pwd.send_keys(USER_PASS)
-        
-        # ログインボタン
         driver.find_element(By.CSS_SELECTOR, "button[type='submit']").click()
         time.sleep(3)
 
-        # 2. 案件一覧へ移動
+        # 2. 案件一覧へ
+        status_log.append("案件一覧へ移動...")
         try:
-            # "案件一覧"のリンクを探してクリック
             link = wait.until(EC.element_to_be_clickable((By.XPATH, "//*[contains(text(), '案件一覧')]")))
             link.click()
             time.sleep(3)
         except:
-            # 失敗したらURL直打ち
             driver.get("https://zume-n.com/projects")
             time.sleep(3)
 
-        # 3. データ抽出 (品名とロット番号を探す)
-        # テーブル行を取得
-        rows = driver.find_elements(By.XPATH, "//table/tbody/tr")
-        
-        # ヘッダーを確認して列番号を特定する
-        header_cells = driver.find_elements(By.XPATH, "//table/thead/tr/th")
-        headers = [h.text.strip() for h in header_cells]
-        
-        # デフォルトの列番号（見つからなかった場合用）
-        idx_name = 0 # 品名
-        idx_lot = 1  # ロット
-        
-        # ヘッダーから列位置を検索
-        for i, h in enumerate(headers):
-            if "品名" in h or "製品名" in h: idx_name = i
-            if "ロット" in h or "Lot" in h: idx_lot = i
+        # 3. メニュー(...)を開く
+        status_log.append("メニュー(...)をクリック...")
+        menu_btn = wait.until(EC.element_to_be_clickable(
+            (By.XPATH, "//*[contains(text(), '新規案件')]/ancestor-or-self::button/following-sibling::button[1] | //*[contains(text(), '新規案件')]/../following-sibling::button[1]")
+        ))
+        menu_btn.click()
+        time.sleep(1)
 
-        for row in rows:
-            cols = row.find_elements(By.TAG_NAME, "td")
-            if len(cols) > max(idx_name, idx_lot):
-                p_name = cols[idx_name].text.strip()
-                p_lot = cols[idx_lot].text.strip()
-                
-                # 空データは除外
-                if p_name:
-                    data_list.append({"製品名": p_name, "ロット番号": p_lot})
+        # 4. CSVダウンロードを押す
+        status_log.append("CSVダウンロードをクリック...")
+        csv_btn = wait.until(EC.element_to_be_clickable(
+            (By.XPATH, "//*[contains(text(), 'CSVダウンロード')]")
+        ))
+        csv_btn.click()
+        
+        # 5. ダウンロード完了待ち
+        status_log.append("ファイル保存待ち...")
+        time.sleep(5) # ダウンロード時間を確保
+        
+        # ファイルを探す
+        downloaded_files = os.listdir(DOWNLOAD_DIR)
+        if not downloaded_files:
+            # もう少し待つ
+            time.sleep(5)
+            downloaded_files = os.listdir(DOWNLOAD_DIR)
+            
+        if not downloaded_files:
+            raise Exception("CSVファイルがダウンロードされませんでした")
+
+        # 最新のファイルを取得
+        target_file = os.path.join(DOWNLOAD_DIR, downloaded_files[0])
+        status_log.append(f"ファイル取得成功: {downloaded_files[0]}")
+        
+        # CSV読み込み (Shift-JISかUTF-8か判別しながら)
+        try:
+            df = pd.read_csv(target_file, encoding='utf-8')
+        except:
+            df = pd.read_csv(target_file, encoding='shift_jis')
+
+        driver.quit()
+        return df, None
 
     except Exception as e:
-        # エラーが起きても空リストではなくエラー情報を返す
-        return pd.DataFrame(), str(e)
-    finally:
-        driver.quit()
-
-    return pd.DataFrame(data_list), None
-
+        if 'driver' in locals(): driver.quit()
+        return pd.DataFrame(), f"{str(e)} (ログ: {' -> '.join(status_log)})"
 
 # ==========================================
 # 🏭 メイン画面レイアウト
 # ==========================================
 st.title("🏭 工場生産管理モニター")
 
+# --- データ管理 ---
+if 'product_df' not in st.session_state:
+    st.session_state.product_df = pd.DataFrame()
+if 'fetch_error' not in st.session_state:
+    st.session_state.fetch_error = None
+
 # 更新ボタン
-if st.button("🔄 データを最新にする"):
-    fetch_product_data.clear()
-    st.rerun()
+if st.button("🔄 最新データを取得 (CSVダウンロード)"):
+    with st.spinner("ロボットがCSVをダウンロード中..."):
+        df, err = fetch_data_via_csv()
+        st.session_state.product_df = df
+        st.session_state.fetch_error = err
 
-# データのロード
-with st.spinner("ズメーンからデータを取得中..."):
-    df, error_msg = fetch_product_data()
+# --- データ表示用 (空ならデモデータ) ---
+display_df = st.session_state.product_df
+if display_df.empty:
+    display_df = pd.DataFrame([
+        {"品名": "【デモ】製品A", "ロット番号": "LOT-001"},
+        {"品名": "【デモ】製品B", "ロット番号": "LOT-002"},
+    ])
 
-if error_msg:
-    st.error("データ取得中にエラーが発生しましたが、画面を表示します。")
-    st.caption(f"エラー詳細: {error_msg}")
-    # テスト用ダミーデータ（エラー時も画面イメージを確認できるように）
-    if df.empty:
-        df = pd.DataFrame([
-            {"製品名": "(取得失敗)", "ロット番号": "---"},
-            {"製品名": "テストデータA", "ロット番号": "LOT-001"},
-            {"製品名": "テストデータB", "ロット番号": "LOT-002"},
-        ])
+# エラー表示
+if st.session_state.fetch_error:
+    st.warning("⚠️ データの取得に失敗しました。")
+    with st.expander("エラー詳細"):
+        st.text(st.session_state.fetch_error)
 
-# --- 2カラムレイアウト ---
+# ==========================================
+# 画面レイアウト
+# ==========================================
 col_map, col_list = st.columns([1.5, 1])
 
 # --- 左側：機械間取り図 ---
 with col_map:
     st.subheader("🗺️ 機械レイアウト")
-    
-    # 画像アップローダー（毎回アップロードするのは大変なので、運用時は固定画像にします）
-    st.info("工場の図面画像をアップロードしてください")
-    layout_img = st.file_uploader("レイアウト図 (画像)", type=['png', 'jpg', 'jpeg'])
-    
-    if layout_img:
-        st.image(layout_img, use_column_width=True, caption="工場レイアウト")
+    uploaded_map = st.file_uploader("レイアウト図をアップロード", type=['png', 'jpg', 'jpeg'])
+    if uploaded_map:
+        st.image(uploaded_map, use_column_width=True, caption="工場レイアウト")
     else:
-        # 画像がない場合のプレースホルダー（四角形を描画してごまかす）
-        st.markdown(
-            """
-            <div style="background-color:#e5e7eb; height:400px; display:flex; align-items:center; justify-content:center; border: 2px dashed #9ca3af; border-radius: 10px;">
-                <p style="color:#4b5563; font-weight:bold;">ここに間取り図が表示されます<br>(画像をアップロードしてください)</p>
-            </div>
-            """, 
-            unsafe_allow_html=True
-        )
+        st.info("画像をアップロードしてください")
 
 # --- 右側：製品リスト ---
 with col_list:
     st.subheader("📋 進行中案件")
     
-    # データを強調して表示
-    if not df.empty:
-        # スタイリング（文字を大きく）
+    if not display_df.empty:
+        # 列名調整 (CSVの列名が微妙に違う場合に対応)
+        # 品名っぽい列とロットっぽい列を探す
+        cols = display_df.columns.tolist()
+        col_name = next((c for c in cols if "品名" in c or "製品" in c), cols[0])
+        col_lot = next((c for c in cols if "ロット" in c or "Lot" in c), cols[1] if len(cols)>1 else cols[0])
+
         st.markdown(
             """
             <style>
-            .product-card {
-                background-color: #f0f9ff;
+            .p-card {
+                background-color: white;
                 padding: 15px;
-                border-radius: 8px;
                 margin-bottom: 10px;
-                border-left: 5px solid #0369a1;
+                border-radius: 8px;
+                border-left: 5px solid #3b82f6;
+                box-shadow: 0 2px 4px rgba(0,0,0,0.1);
             }
-            .p-name { font-size: 1.1em; font-weight: bold; color: #1e293b; }
-            .p-lot { font-size: 0.9em; color: #64748b; }
+            .p-title { font-weight: bold; font-size: 1.1em; color: #1f2937; }
+            .p-info { color: #6b7280; font-size: 0.9em; margin-top: 4px; }
             </style>
             """, unsafe_allow_html=True
         )
         
-        for index, row in df.iterrows():
-            st.markdown(
-                f"""
-                <div class="product-card">
-                    <div class="p-name">📦 {row['製品名']}</div>
-                    <div class="p-lot">🔖 ロット: {row['ロット番号']}</div>
-                </div>
-                """, 
-                unsafe_allow_html=True
-            )
-    else:
-        st.info("表示するデータがありません")
-
+        for index, row in display_df.iterrows():
+            # データが存在する場合のみ表示
+            if pd.notna(row[col_name]):
+                p_name = row[col_name]
+                p_lot = row[col_lot] if pd.notna(row[col_lot]) else "---"
+                
+                st.markdown(
+                    f"""
+                    <div class="p-card">
+                        <div class="p-title">📦 {p_name}</div>
+                        <div class="p-info">🔖 ロット: {p_lot}</div>
+                    </div>
+                    """,
+                    unsafe_allow_html=True
+                )
