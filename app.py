@@ -7,20 +7,22 @@ from selenium.webdriver.support import expected_conditions as EC
 import time
 
 # ページ設定
-st.set_page_config(page_title="サイト接続テスト", layout="wide")
+st.set_page_config(page_title="ズメーン自動ログイン", layout="wide")
 
-st.title("🌐 サイト接続テスト")
-st.caption("指定したURLを開き、中身が正しく表示されるか確認します。")
+st.title("🤖 ズメーン自動ログイン")
+st.caption("指定されたアカウントで自動ログインを試みます。")
 
-# URL入力欄（デフォルトは解析したHTMLにあった drawings ページ）
-target_url = st.text_input("アクセスするURL", "https://zume-n.com/drawings")
+# --- ログイン情報 (コードに埋め込み) ---
+LOGIN_URL = "https://zume-n.com/login"  # ログインページのURL（推測）
+USER_EMAIL = "r.mori@mbs-m.co.jp"
+USER_PASS = "Riki(1127)"
 
-if st.button("🚀 ページを開く"):
+if st.button("🚀 ログインを実行"):
     
     status = st.empty()
-    status.info("🔄 ブラウザを起動しています...")
+    status.info("🔄 ブラウザを起動中...")
 
-    # --- ブラウザ設定 (Headlessモード) ---
+    # --- ブラウザ設定 ---
     options = Options()
     options.add_argument("--headless")
     options.add_argument("--no-sandbox")
@@ -30,39 +32,54 @@ if st.button("🚀 ページを開く"):
 
     try:
         driver = webdriver.Chrome(options=options)
-        wait = WebDriverWait(driver, 20) # 最大20秒待つ
+        wait = WebDriverWait(driver, 15)
 
-        # --- アクセス開始 ---
-        status.info(f"🔄 {target_url} にアクセス中...")
-        driver.get(target_url)
+        # 1. ログインページへアクセス
+        status.info(f"🔄 {LOGIN_URL} にアクセスしています...")
+        driver.get(LOGIN_URL)
+        
+        # 読み込み待ち
+        wait.until(EC.presence_of_element_located((By.TAG_NAME, "body")))
+        time.sleep(2) # 念のための待機
 
-        # --- 読み込み待ち (重要) ---
-        status.info("⏳ 画面の描画を待っています...")
-        
-        # Next.jsのサイトは <div id="__next"> の中にコンテンツが作られます。
-        # まずこれが存在するか確認します。
-        wait.until(EC.presence_of_element_located((By.ID, "__next")))
-        
-        # さらに、人間が見るためのコンテンツ（例えば「図面」や「一覧」という文字）が出るまで少し待ちます
-        time.sleep(5) 
+        # 2. メールアドレス入力
+        status.info("🔄 メールアドレスを入力中...")
+        # inputタグの中から emailタイプ または name="email" を探す
+        email_input = wait.until(EC.presence_of_element_located(
+            (By.CSS_SELECTOR, "input[type='email'], input[name='email'], input[type='text']")
+        ))
+        email_input.clear()
+        email_input.send_keys(USER_EMAIL)
 
-        # --- 結果確認 ---
-        status.success("✅ ページが開けました！")
+        # 3. パスワード入力
+        status.info("🔄 パスワードを入力中...")
+        pass_input = driver.find_element(By.CSS_SELECTOR, "input[type='password']")
+        pass_input.clear()
+        pass_input.send_keys(USER_PASS)
+
+        # 4. ログインボタン押下
+        status.info("🔄 ログインボタンを押しています...")
+        # ボタンを探す (type="submit" または "ログイン" という文字を含むボタン)
+        submit_btn = driver.find_element(By.CSS_SELECTOR, "button[type='submit']")
+        submit_btn.click()
+
+        # 5. 結果確認
+        status.info("⏳ ログイン後の画面を読み込んでいます...")
+        time.sleep(5) # 画面遷移待ち
+
+        # 成功メッセージと証拠写真
+        status.success("✅ 処理が完了しました！現在の画面を確認してください。")
         
-        # 現在のURLとタイトルを表示
         st.write(f"**現在のURL:** {driver.current_url}")
-        st.write(f"**ページタイトル:** {driver.title}")
-
-        # スクリーンショットを表示（証拠写真）
-        st.image(driver.get_screenshot_as_png(), caption="ロボットが見ている画面")
+        
+        # スクリーンショットを表示
+        st.image(driver.get_screenshot_as_png(), caption="現在の画面")
 
     except Exception as e:
         st.error(f"エラーが発生しました: {e}")
-        # エラー時も念のためスクショを撮る
-        try:
+        # エラー時の画面も保存
+        if 'driver' in locals():
             st.image(driver.get_screenshot_as_png(), caption="エラー時の画面")
-        except:
-            pass
     
     finally:
         if 'driver' in locals():
