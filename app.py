@@ -21,7 +21,7 @@ st.set_page_config(page_title="ズメーン自動CSV取得", layout="wide")
 # 🔐 パスワード認証
 # ==========================================
 def check_password():
-    SECRET_PASSWORD = "1234"
+    SECRET_PASSWORD = "mbss3457"
     if "password_correct" not in st.session_state:
         st.session_state.password_correct = False
     if not st.session_state.password_correct:
