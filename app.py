@@ -1,10 +1,8 @@
 import streamlit as st
-import pandas as pd
 import time
 import os
-import shutil
 
-# Selenium関連のインポート（エラー時はスキップ）
+# Selenium関連のインポート
 try:
     from selenium import webdriver
     from selenium.webdriver.chrome.options import Options
@@ -16,7 +14,7 @@ except ImportError:
     SELENIUM_AVAILABLE = False
 
 # ページ設定
-st.set_page_config(page_title="工場稼働モニタリング", layout="wide")
+st.set_page_config(page_title="ズメーン自動操作", layout="wide")
 
 # ==========================================
 # 🔐 パスワード認証
@@ -41,25 +39,23 @@ def check_password():
 check_password()
 
 # ==========================================
-# ⚙️ データ取得ロジック (CSVダウンロード方式)
+# 🤖 自動操作ロジック
 # ==========================================
 LOGIN_URL = "https://zume-n.com/login"
 USER_EMAIL = "r.mori@mbs-m.co.jp"
 USER_PASS = "Riki(1127)"
-DOWNLOAD_DIR = "/tmp/zumen_downloads"
 
-def fetch_data_via_csv():
-    """CSVダウンロードボタンを押してデータを取得する"""
+def run_automation():
+    """ログインしてメニューを開き、CSVダウンロードの文字を表示するまで"""
     if not SELENIUM_AVAILABLE:
-        return pd.DataFrame(), "Seleniumライブラリがありません"
+        st.error("Seleniumライブラリがありません。requirements.txtを確認してください。")
+        return
 
-    status_log = []
-    
-    if os.path.exists(DOWNLOAD_DIR):
-        shutil.rmtree(DOWNLOAD_DIR)
-    os.makedirs(DOWNLOAD_DIR)
+    status = st.empty()
+    status.info("🔄 ブラウザを起動中...")
 
     try:
+        # ブラウザ設定
         options = Options()
         options.add_argument("--headless")
         options.add_argument("--no-sandbox")
@@ -67,14 +63,11 @@ def fetch_data_via_csv():
         options.add_argument("--disable-gpu")
         options.add_argument("--window-size=1920,1080")
         
-        prefs = {"download.default_directory": DOWNLOAD_DIR}
-        options.add_experimental_option("prefs", prefs)
-        
         driver = webdriver.Chrome(options=options)
         wait = WebDriverWait(driver, 15)
 
         # 1. ログイン
-        status_log.append("ログイン中...")
+        status.info(f"🔄 {LOGIN_URL} にアクセス中...")
         driver.get(LOGIN_URL)
         wait.until(EC.presence_of_element_located((By.TAG_NAME, "body")))
         
@@ -85,11 +78,12 @@ def fetch_data_via_csv():
         
         email.clear(); email.send_keys(USER_EMAIL)
         pwd.clear(); pwd.send_keys(USER_PASS)
+        
         driver.find_element(By.CSS_SELECTOR, "button[type='submit']").click()
-        time.sleep(3)
+        time.sleep(3) # ログイン待ち
 
-        # 2. 案件一覧へ
-        status_log.append("案件一覧へ移動...")
+        # 2. 案件一覧へ移動
+        status.info("🔄 「案件一覧」へ移動中...")
         try:
             link = wait.until(EC.element_to_be_clickable((By.XPATH, "//*[contains(text(), '案件一覧')]")))
             link.click()
@@ -98,166 +92,46 @@ def fetch_data_via_csv():
             driver.get("https://zume-n.com/projects")
             time.sleep(3)
 
-        # 3. メニュー(...)を開く
-        status_log.append("メニュー操作...")
+        # 3. メニューボタン(...)をクリック
+        status.info("🔄 「新規案件」の右隣にあるメニュー(...)を開きます...")
+        
+        # 「新規案件」ボタンのすぐ後ろにあるボタンを探してクリック
         menu_btn = wait.until(EC.element_to_be_clickable(
             (By.XPATH, "//*[contains(text(), '新規案件')]/ancestor-or-self::button/following-sibling::button[1] | //*[contains(text(), '新規案件')]/../following-sibling::button[1]")
         ))
         menu_btn.click()
-        time.sleep(1)
+        time.sleep(1) # メニューが開くのを待つ
 
-        # 4. CSVダウンロード
-        status_log.append("ダウンロード開始...")
-        csv_btn = wait.until(EC.element_to_be_clickable(
-            (By.XPATH, "//*[contains(text(), 'CSVダウンロード')]")
+        # 4. 「CSVダウンロード」の文字を確認
+        status.info("👀 「CSVダウンロード」の文字が表示されているか確認中...")
+        
+        # 画面上に「CSV」を含む要素が見えているかチェック
+        csv_element = wait.until(EC.visibility_of_element_located(
+            (By.XPATH, "//*[contains(text(), 'CSV') or contains(text(), 'csv')]")
         ))
-        csv_btn.click()
         
-        time.sleep(5)
+        # ここでストップ！
+        status.success("✅ 成功！メニューが開き、「CSVダウンロード」が表示されました。")
         
-        downloaded_files = os.listdir(DOWNLOAD_DIR)
-        if not downloaded_files:
-            time.sleep(5)
-            downloaded_files = os.listdir(DOWNLOAD_DIR)
-            
-        if not downloaded_files:
-            raise Exception("CSVファイルが見つかりませんでした")
-
-        target_file = os.path.join(DOWNLOAD_DIR, downloaded_files[0])
+        # 証拠写真を撮る
+        st.image(driver.get_screenshot_as_png(), caption="現在の画面（メニューが開いている状態）")
         
-        try:
-            df = pd.read_csv(target_file, encoding='utf-8')
-        except:
-            df = pd.read_csv(target_file, encoding='shift_jis')
-
-        driver.quit()
-        return df, None
-
     except Exception as e:
-        if 'driver' in locals(): driver.quit()
-        return pd.DataFrame(), f"{str(e)}"
-
-# ==========================================
-# 🏭 メイン画面レイアウト
-# ==========================================
-
-# --- サイドバー：工場選択 ---
-with st.sidebar:
-    st.title("🏭 工場切替")
-    # ここで工場を切り替える
-    selected_factory = st.radio(
-        "表示する工場を選択:",
-        ("本社工場", "八尾工場")
-    )
-    st.divider()
-    st.caption("工場ごとにレイアウト図を保存・表示できます。")
-
-st.title(f"📊 {selected_factory} 稼働モニター")
-
-# --- データ管理 ---
-if 'product_df' not in st.session_state:
-    st.session_state.product_df = pd.DataFrame()
-if 'fetch_error' not in st.session_state:
-    st.session_state.fetch_error = None
-
-# 更新ボタン
-if st.button("🔄 最新データを取得 (ズメーン連携)"):
-    with st.spinner("ロボットがCSVをダウンロード中..."):
-        df, err = fetch_data_via_csv()
-        st.session_state.product_df = df
-        st.session_state.fetch_error = err
-
-# --- データ表示用 (空ならデモデータ) ---
-display_df = st.session_state.product_df
-if display_df.empty:
-    display_df = pd.DataFrame([
-        {"品名": "【デモ】製品A", "ロット番号": "LOT-001"},
-        {"品名": "【デモ】製品B", "ロット番号": "LOT-002"},
-    ])
-
-if st.session_state.fetch_error:
-    st.warning("⚠️ データの取得に失敗しました。")
-    with st.expander("エラー詳細"):
-        st.text(st.session_state.fetch_error)
-
-# ==========================================
-# 2カラムレイアウト
-# ==========================================
-col_map, col_list = st.columns([1.5, 1])
-
-# --- 左側：機械間取り図 (工場ごとに切り替え) ---
-with col_map:
-    st.subheader(f"🗺️ {selected_factory} レイアウト図")
+        st.error("❌ エラーが発生しました")
+        st.error(f"詳細: {e}")
+        # エラー時の画面も表示
+        if 'driver' in locals():
+            st.image(driver.get_screenshot_as_png(), caption="エラー時の画面")
     
-    # 工場ごとに異なるキー(key)を設定することで、画像を別々に保存します
-    if selected_factory == "本社工場":
-        uploaded_map = st.file_uploader("本社工場の図面をアップロード", type=['png', 'jpg', 'jpeg'], key="map_honsha")
-    else:
-        uploaded_map = st.file_uploader("八尾工場の図面をアップロード", type=['png', 'jpg', 'jpeg'], key="map_yao")
-    
-    # 画像表示エリア
-    if uploaded_map:
-        st.image(uploaded_map, use_column_width=True, caption=f"{selected_factory} レイアウト")
-    else:
-        # 画像がない時のプレースホルダー
-        st.markdown(
-            f"""
-            <div style="
-                background-color:#f3f4f6; 
-                height:400px; 
-                display:flex; 
-                align-items:center; 
-                justify-content:center; 
-                border: 2px dashed #9ca3af; 
-                border-radius: 10px;
-                color:#4b5563; font-weight:bold; text-align:center;">
-                {selected_factory}の図面が未登録です<br>
-                画像をアップロードしてください
-            </div>
-            """, 
-            unsafe_allow_html=True
-        )
+    finally:
+        if 'driver' in locals():
+            driver.quit()
 
-# --- 右側：製品リスト ---
-with col_list:
-    st.subheader("📋 進行中案件")
-    
-    if not display_df.empty:
-        # 列名調整
-        cols = display_df.columns.tolist()
-        col_name = next((c for c in cols if "品名" in c or "製品" in c), cols[0])
-        col_lot = next((c for c in cols if "ロット" in c or "Lot" in c), cols[1] if len(cols)>1 else cols[0])
+# ==========================================
+# 🖥️ アプリ画面
+# ==========================================
+st.title("🤖 ズメーン自動操作 (メニュー表示まで)")
+st.caption("ボタンを押すと、ロボットがログインしてメニューを開き、CSVダウンロードの文字を表示します。")
 
-        st.markdown(
-            """
-            <style>
-            .p-card {
-                background-color: white;
-                padding: 15px;
-                margin-bottom: 10px;
-                border-radius: 8px;
-                border-left: 5px solid #3b82f6;
-                box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-            }
-            .p-title { font-weight: bold; font-size: 1.1em; color: #1f2937; }
-            .p-info { color: #6b7280; font-size: 0.9em; margin-top: 4px; }
-            </style>
-            """, unsafe_allow_html=True
-        )
-        
-        # リスト表示 (スクロールできるようにコンテナ化も可能)
-        with st.container(height=600):
-            for index, row in display_df.iterrows():
-                if pd.notna(row[col_name]):
-                    p_name = row[col_name]
-                    p_lot = row[col_lot] if pd.notna(row[col_lot]) else "---"
-                    
-                    st.markdown(
-                        f"""
-                        <div class="p-card">
-                            <div class="p-title">📦 {p_name}</div>
-                            <div class="p-info">🔖 ロット: {p_lot}</div>
-                        </div>
-                        """,
-                        unsafe_allow_html=True
-                    )
+if st.button("🚀 ロボットを起動する", type="primary"):
+    run_automation()
